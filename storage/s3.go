@@ -39,7 +39,11 @@ type S3Client struct {
 }
 
 func NewS3Client(cfg Cfg) (*S3Client, error) {
-	awsCfg, err := awsconfig.LoadDefaultConfig(context.TODO(), awsconfig.WithRegion(cfg.Region))
+	optFns := []func(options *awsconfig.LoadOptions) error{
+		awsconfig.WithRegion(cfg.Region),
+		awsconfig.WithRetryer(func() aws.Retryer { return aws.NopRetryer{} }),
+	}
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.TODO(), optFns...)
 	if err != nil {
 		return nil, fmt.Errorf("storage: new aws cli %w", err)
 	}
@@ -123,7 +127,7 @@ func (p *S3ListObjectPaginator) NextPage(ctx context.Context) (*Page, error) {
 
 	contents := make([]ObjectAttr, 0, len(page.Contents))
 	for _, obj := range page.Contents {
-		contents = append(contents, ObjectAttr{Length: obj.Size, Key: *obj.Key})
+		contents = append(contents, ObjectAttr{Length: obj.Size, Key: *obj.Key, ETag: *obj.ETag})
 	}
 
 	return &Page{Contents: contents}, nil
@@ -137,19 +141,6 @@ func (c *S3Client) GetObject(ctx context.Context, i GetObjectInput) (*Object, er
 	}
 
 	return &Object{Body: o.Body, Length: o.ContentLength}, nil
-}
-
-func (c *S3Client) PutObject(ctx context.Context, i PutObjectInput) error {
-	params := s3.PutObjectInput{
-		Bucket:        aws.String(i.Bucket),
-		Body:          i.Body,
-		Key:           aws.String(i.Key),
-		ContentLength: i.Length,
-	}
-	if _, err := c.cli.PutObject(ctx, &params); err != nil {
-		return fmt.Errorf("storage: s3 put object %w", err)
-	}
-	return nil
 }
 
 func (c *S3Client) DeleteObjects(ctx context.Context, i DeleteObjectsInput) error {
@@ -207,8 +198,10 @@ func (c *S3Client) UploadObject(ctx context.Context, i UploadObjectInput) error 
 	firstBlock = firstBlock[:n]
 	if n < _5M {
 		reader := bytes.NewReader(firstBlock)
-		putInput := PutObjectInput{Bucket: i.Bucket, Key: i.Key, Length: int64(n), Body: reader}
-		if err := c.PutObject(ctx, putInput); err != nil {
+		putInput := &s3.PutObjectInput{
+			Bucket: aws.String(i.Bucket), Key: aws.String(i.Key), Body: reader, ContentLength: int64(len(firstBlock)),
+		}
+		if _, err := c.cli.PutObject(ctx, putInput); err != nil {
 			return fmt.Errorf("storage: upload object put object %w", err)
 		}
 

@@ -27,8 +27,8 @@ func (c *S3Client) UploadObject_BigFile(ctx context.Context, i UploadObjectInput
 	firstBlock = firstBlock[:n]
 	if n < _5M {
 		reader := bytes.NewReader(firstBlock)
-		putInput := PutObjectInput{Bucket: i.Bucket, Key: i.Key, Length: int64(n), Body: reader}
-		if err := c.PutObject(ctx, putInput); err != nil {
+		putInput := UploadObjectInput{Bucket: i.Bucket, Key: i.Key, Body: reader}
+		if err := c.UploadObject(ctx, putInput); err != nil {
 			return fmt.Errorf("storage: upload object put object %w", err)
 		}
 
