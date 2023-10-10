@@ -66,7 +66,7 @@ func NewS3Client(cfg Cfg) (*S3Client, error) {
 		awsCfg.EndpointResolverWithOptions = resolver
 	}
 
-	if !cfg.UseIAM {
+	if !cfg.UseIAM && len(cfg.AK) != 0 && len(cfg.SK) != 0 {
 		awsCfg.Credentials = credentials.NewStaticCredentialsProvider(cfg.AK, cfg.SK, "")
 	}
 	return &S3Client{cli: s3.NewFromConfig(awsCfg)}, nil
