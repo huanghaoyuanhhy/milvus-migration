@@ -3,9 +3,9 @@ package storage
 import (
 	"context"
 	"fmt"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 )
 
@@ -19,7 +19,7 @@ func NewAzureClient(cfg Cfg) (*AzureClient, error) {
 	endpoint := fmt.Sprintf("https://%s.blob.core.windows.net", cfg.AK)
 	var cli *azblob.Client
 	if cfg.UseIAM {
-		cred, err := azidentity.NewDefaultAzureCredential(nil)
+		cred, err := azidentity.NewWorkloadIdentityCredential(nil)
 		if err != nil {
 			return nil, fmt.Errorf("storage: new azure default azure credential %w", err)
 		}
