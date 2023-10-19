@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"os"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/runtime"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
@@ -19,7 +20,11 @@ func NewAzureClient(cfg Cfg) (*AzureClient, error) {
 	endpoint := fmt.Sprintf("https://%s.blob.core.windows.net", cfg.AK)
 	var cli *azblob.Client
 	if cfg.UseIAM {
-		cred, err := azidentity.NewWorkloadIdentityCredential(nil)
+		cred, err := azidentity.NewWorkloadIdentityCredential(&azidentity.WorkloadIdentityCredentialOptions{
+			ClientID:      os.Getenv("AZURE_CLIENT_ID"),
+			TenantID:      os.Getenv("AZURE_TENANT_ID"),
+			TokenFilePath: os.Getenv("AZURE_FEDERATED_TOKEN_FILE"),
+		})
 		if err != nil {
 			return nil, fmt.Errorf("storage: new azure default azure credential %w", err)
 		}
