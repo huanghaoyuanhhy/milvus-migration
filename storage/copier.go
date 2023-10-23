@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync/atomic"
 
 	"golang.org/x/time/rate"
 )
@@ -59,6 +60,12 @@ type Copier struct {
 	bufSizeBytePerWorker int
 	useRemoteCopy        bool
 	rps                  int32
+
+	totalLen atomic.Uint64
+	totalCnt atomic.Uint64
+
+	len atomic.Uint64
+	cnt atomic.Uint64
 }
 
 func NewCopier(src, dest Client, opt CopyOption) *Copier {
@@ -81,9 +88,22 @@ func NewCopier(src, dest Client, opt CopyOption) *Copier {
 	}
 }
 
-type Total struct {
-	Length int64
-	Count  int64
+type Process struct {
+	TotalLen uint64
+	TotalCnt uint64
+
+	Len uint64
+	Cnt uint64
+}
+
+func (c *Copier) Process() Process {
+	return Process{
+		TotalLen: c.totalLen.Load(),
+		TotalCnt: c.totalCnt.Load(),
+
+		Len: c.len.Load(),
+		Cnt: c.cnt.Load(),
+	}
 }
 
 type CopyPathInput struct {
@@ -95,36 +115,35 @@ type CopyPathInput struct {
 
 	// OnSuccess when an object copy success, this func will be call
 	// May be executed concurrently, please pay attention to thread safety
-	OnSuccess func(attr ObjectAttr, total Total)
+	OnSuccess func(attr ObjectAttr)
 }
 
 // getAttrs get all attrs under bucket/prefix
-func (c *Copier) getAttrs(ctx context.Context, bucket, prefix string) ([]ObjectAttr, Total, error) {
+func (c *Copier) getAttrs(ctx context.Context, bucket, prefix string) ([]ObjectAttr, error) {
 	var attrs []ObjectAttr
-	var length int64
-	var count int64
+
 	p := c.src.ListObjectsPage(ctx, ListObjectPageInput{Bucket: bucket, Prefix: prefix})
 	for p.HasMorePages() {
 		page, err := p.NextPage(ctx)
 		if err != nil {
-			return nil, Total{}, fmt.Errorf("storage: copier list objects %w", err)
+			return nil, fmt.Errorf("storage: copier list objects %w", err)
 		}
 		for _, attr := range page.Contents {
 			if attr.IsEmpty() {
 				continue
 			}
 			attrs = append(attrs, attr)
-			length += attr.Length
-			count++
+			c.totalLen.Add(uint64(attr.Length))
+			c.cnt.Add(1)
 		}
 	}
 
-	return attrs, Total{Length: length, Count: count}, nil
+	return attrs, nil
 }
 
 // CopyPrefix Copy all files under src path
 func (c *Copier) CopyPrefix(ctx context.Context, i CopyPathInput) error {
-	srcAttrs, total, err := c.getAttrs(ctx, i.SrcBucket, i.SrcPrefix)
+	srcAttrs, err := c.getAttrs(ctx, i.SrcBucket, i.SrcPrefix)
 	if err != nil {
 		return fmt.Errorf("storage: copier get src attrs %w", err)
 	}
@@ -146,7 +165,7 @@ func (c *Copier) CopyPrefix(ctx context.Context, i CopyPathInput) error {
 				}
 			}
 			if i.OnSuccess != nil {
-				i.OnSuccess(attr, total)
+				i.OnSuccess(attr)
 			}
 			return nil
 		}
